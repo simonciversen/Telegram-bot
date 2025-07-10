@@ -11,10 +11,12 @@ Setup:
 import sys
 import logging
 import requests
+from requests.exceptions import RequestException
 import re
 from datetime import datetime, timedelta, timezone
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackContext
+from telegram import Bot as SyncBot
 import json
 from pathlib import Path
 import subprocess
@@ -54,6 +56,9 @@ def commit_and_push():
 TELEGRAM_TOKEN = '7495330094:AAF1-3HvNMyYft2jI1d0QZL3tTiDyQ0cx1c'
 ODDS_API_KEY   = 'fd52b739736aa01f79326410472dbf4b'
 SPORT_KEY      = 'tennis'
+
+# synchronous bot used inside threads for alerts
+sync_bot = SyncBot(token=TELEGRAM_TOKEN)
 
 # Validate credentials
 if not TELEGRAM_TOKEN or ' ' in TELEGRAM_TOKEN:
@@ -125,7 +130,17 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     user_thresholds = thresholds.get(chat, [])
     thr_map = {thr['surname'].lower(): thr['threshold'] for thr in user_thresholds}
 
-    top7 = get_top7_markets()
+    # fetch markets, but catch authorization or other HTTP errors gracefully
+    try:
+        top7 = get_top7_markets()
+    except RequestException as e:
+        await update.message.reply_text(f"⚠️ Could not retrieve matches: {e}")
+        return
+
+    # if no markets returned, let the user know
+    if not top7:
+        await update.message.reply_text("⚠️ No upcoming matches found (or you're not authorized to view them).")
+        return
 
     # List matches
     for idx, (mkt, dt_utc) in enumerate(top7, start=1):
@@ -258,37 +273,51 @@ import threading
 def threshold_watcher():
     while True:
         try:
-            top7 = get_top7_markets()
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"Error fetching markets in watcher: {e}")
-            time.sleep(10)
-            continue
+            try:
+                top7 = get_top7_markets()
+            except RequestException as e:
+                logger.error(f"Error fetching markets in watcher: {e}")
+                # alert each chat of the problem
+                for chat in thresholds:
+                    try:
+                        sync_bot.send_message(
+                            chat_id=chat,
+                            text=f"⚠️ Error retrieving markets: {e}",
+                            parse_mode='Markdown'
+                        )
+                    except Exception as send_exc:
+                        logger.error(f"Failed to send HTTPError alert to chat {chat}: {send_exc}")
+                time.sleep(60)
+                continue
 
-        for chat, user_th in list(thresholds.items()):
-            for thr in list(user_th):
-                surname = thr['surname'].lower()
-                thr_price = thr['threshold']
-                for mkt, _ in top7:
-                    for o in mkt['bookmakers'][0]['markets'][0]['outcomes']:
-                        if o['name'].lower().split()[-1] == surname and o['price'] <= thr_price:
-                            try:
-                                app.bot.send_message(
-                                    chat_id=chat,
-                                    text=f"⚠️ *{thr['surname']}* odds dropped to {o['price']} (≤ {thr_price})",
-                                    parse_mode='Markdown'
-                                )
-                            except Exception as e:
-                                logger.error(f"Threshold alert error: {e}")
-                            thresholds[chat].remove(thr)
-                            save_thresholds()
-                            break
+            for chat, user_th in list(thresholds.items()):
+                for thr in list(user_th):
+                    surname = thr['surname'].lower()
+                    thr_price = thr['threshold']
+                    for mkt, _ in top7:
+                        for o in mkt['bookmakers'][0]['markets'][0]['outcomes']:
+                            if o['name'].lower().split()[-1] == surname and o['price'] <= thr_price:
+                                try:
+                                    app.bot.send_message(
+                                        chat_id=chat,
+                                        text=f"⚠️ *{thr['surname']}* odds dropped to {o['price']} (≤ {thr_price})",
+                                        parse_mode='Markdown'
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Threshold alert error: {e}")
+                                thresholds[chat].remove(thr)
+                                save_thresholds()
+                                break
+        except Exception as e:
+            logger.error(f"Threshold watcher encountered error: {e}", exc_info=e)
         time.sleep(10)
 
 # Main entry
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    # support both /t10t shortcut and the original /top10tennis command
-    app.add_handler(CommandHandler(['t10t', 'top10tennis'], handle_top))
+    # Register /t10t and /top10tennis commands separately
+    app.add_handler(CommandHandler('t10t', handle_top))
+    app.add_handler(CommandHandler('top10tennis', handle_top))
     app.add_handler(CommandHandler('setthreshold', setthreshold))
     app.add_handler(CommandHandler('thresholds', list_thresholds))
     app.add_handler(CommandHandler('remove', remove_threshold))
@@ -298,5 +327,10 @@ if __name__ == '__main__':
     load_thresholds()
     # Start background watcher thread for thresholds
     threading.Thread(target=threshold_watcher, daemon=True).start()
+    # Global error handler to catch uncaught exceptions in handlers
+    async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.error(f"Exception while handling update {update}: {context.error}", exc_info=context.error)
+
+    app.add_error_handler(error_handler)
     logger.info("Bot started and polling...")
     app.run_polling()
