@@ -257,7 +257,13 @@ import threading
 
 def threshold_watcher():
     while True:
-        top7 = get_top7_markets()
+        try:
+            top7 = get_top7_markets()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Error fetching markets in watcher: {e}")
+            time.sleep(10)
+            continue
+
         for chat, user_th in list(thresholds.items()):
             for thr in list(user_th):
                 surname = thr['surname'].lower()
@@ -281,7 +287,8 @@ def threshold_watcher():
 # Main entry
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler('t10t', handle_top))
+    # support both /t10t shortcut and the original /top10tennis command
+    app.add_handler(CommandHandler(['t10t', 'top10tennis'], handle_top))
     app.add_handler(CommandHandler('setthreshold', setthreshold))
     app.add_handler(CommandHandler('thresholds', list_thresholds))
     app.add_handler(CommandHandler('remove', remove_threshold))
