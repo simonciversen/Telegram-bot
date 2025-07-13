@@ -54,7 +54,7 @@ def commit_and_push():
 
 # ======== Config ========
 TELEGRAM_TOKEN = '7495330094:AAF1-3HvNMyYft2jI1d0QZL3tTiDyQ0cx1c'
-ODDS_API_KEY   = '8abe65c8bdcff350cf08862e706a48da2dbf4b'
+ODDS_API_KEY   = '8abe65c8bdcff350cf08862e706a48da'
 SPORT_KEY      = 'tennis'
 
 # synchronous bot used inside threads for alerts
