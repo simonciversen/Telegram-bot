@@ -23,6 +23,10 @@ import subprocess
 import time
 import asyncio
 
+# Explicitly use Norway's Europe/Oslo timezone
+from zoneinfo import ZoneInfo
+NORWAY_TZ = ZoneInfo("Europe/Oslo")
+
 # File to persist thresholds
 THRESHOLDS_FILE = Path(__file__).parent / 'thresholds.json'
 
@@ -148,7 +152,7 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         away_full = mkt.get('away_team', 'Unknown')
         home = format_name(home_full)
         away = format_name(away_full)
-        dt_local = dt_utc.astimezone()
+        dt_local = dt_utc.astimezone(NORWAY_TZ)
         # Mark live matches (commenced in the past)
         now_utc = datetime.now(timezone.utc)
         live_flag = " 🔴 LIVE" if dt_utc <= now_utc else ""
@@ -358,7 +362,7 @@ if __name__ == '__main__':
             away_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('away_team', 'Unknown')), 'N/A')
             home = format_name(mkt.get('home_team', 'Unknown'))
             away = format_name(mkt.get('away_team', 'Unknown'))
-            dt_local = dt_utc.astimezone()
+            dt_local = dt_utc.astimezone(NORWAY_TZ)
             time_str = dt_local.strftime('%H:%M')
             print(f"{idx}. {home} vs {away} — {time_str}")
             print(f"   • {home}: {home_price}")
