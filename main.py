@@ -54,7 +54,7 @@ def commit_and_push():
 
 # ======== Config ========
 TELEGRAM_TOKEN = '7495330094:AAF1-3HvNMyYft2jI1d0QZL3tTiDyQ0cx1c'
-ODDS_API_KEY   = 'fd52b739736aa01f79326410472dbf4b'
+ODDS_API_KEY   = '8abe65c8bdcff350cf08862e706a48da2dbf4b'
 SPORT_KEY      = 'tennis'
 
 # synchronous bot used inside threads for alerts
@@ -314,6 +314,22 @@ def threshold_watcher():
 
 # Main entry
 if __name__ == '__main__':
+    # CLI test mode: "python main.py --print"
+    if len(sys.argv) > 1 and sys.argv[1] == '--print':
+        top7 = get_top7_markets()
+        print("Top 7 Tennis Matches (Next 3 Days):")
+        for idx, (mkt, dt_utc) in enumerate(top7, start=1):
+            home = format_name(mkt.get('home_team', 'Unknown'))
+            away = format_name(mkt.get('away_team', 'Unknown'))
+            dt_local = dt_utc.astimezone()
+            time_str = dt_local.strftime('%A, %H%M GMT')
+            outcomes = mkt['bookmakers'][0]['markets'][0]['outcomes']
+            home_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('home_team')), 'N/A')
+            away_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('away_team')), 'N/A')
+            print(f"{idx}. {home} vs {away} — {time_str}")
+            print(f"   • {home}: {home_price}")
+            print(f"   • {away}: {away_price}")
+        sys.exit(0)
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     # Register /t10t and /top10tennis commands separately
     app.add_handler(CommandHandler('t10t', handle_top))
