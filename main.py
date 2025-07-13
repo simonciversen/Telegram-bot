@@ -244,11 +244,18 @@ async def list_thresholds(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # Handler: /remove Surname
 async def remove_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat.id
-    args = context.args
-    if len(args) != 1:
-        await update.message.reply_text("Usage: /remove <surname>")
-        return
-    surname = args[0]
+    # Determine surname either from slash-command args or plain-text "remove X"
+    text = update.message.text.strip()
+    m = re.match(r'(?i)^remove\s+([A-Za-z]+)$', text)
+    if m:
+        surname = m.group(1)
+    else:
+        args = context.args
+        if len(args) != 1:
+            await update.message.reply_text("Usage: /remove <surname>")
+            return
+        surname = args[0]
+
     user_th = thresholds.get(chat, [])
     new_list = [thr for thr in user_th if thr['surname'].lower() != surname.lower()]
     if len(new_list) == len(user_th):
