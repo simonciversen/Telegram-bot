@@ -234,7 +234,8 @@ async def list_thresholds(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     for surname_lc, prices in agg.items():
         surname_cap = surname_lc.capitalize()
         unique_prices = sorted(set(prices))
-        price_str = ', '.join(f"< {p}" for p in unique_prices)
+        # Join multiple thresholds with " & " and display just the numbers
+        price_str = ' & '.join(str(p) for p in unique_prices)
         lines.append(f"*{surname_cap}* {price_str}")
 
     text = "Your thresholds:\n" + "\n".join(lines)
