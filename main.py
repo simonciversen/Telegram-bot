@@ -252,9 +252,13 @@ async def remove_threshold(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         args = context.args
         if len(args) != 1:
-            await update.message.reply_text("Usage: /remove <surname>")
+            await update.message.reply_text("Usage: /remove <surname> or /removeall to clear all thresholds")
             return
         surname = args[0]
+
+    # support "/remove all" to clear everything
+    if surname.lower() == 'all':
+        return await remove_all(update, context)
 
     user_th = thresholds.get(chat, [])
     new_list = [thr for thr in user_th if thr['surname'].lower() != surname.lower()]
@@ -367,6 +371,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setthreshold', setthreshold))
     app.add_handler(CommandHandler('thresholds', list_thresholds))
     app.add_handler(CommandHandler('remove', remove_threshold))
+    app.add_handler(CommandHandler('removeall', remove_all))
     # plain text handler to remove a single player threshold without slash
     app.add_handler(MessageHandler(filters.Regex(r'(?i)^remove\s+[A-Za-z]+$'), remove_threshold))
     # plain text handlers
