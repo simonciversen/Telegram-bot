@@ -106,7 +106,7 @@ def get_top7_markets():
             continue
     top7 = sorted(
         upcoming,
-        key=lambda x: (-x[0].get('totalMatched', 0), x[1])
+        key=lambda x: (-x[0].get('total_matched', x[0].get('totalMatched', 0)), x[1])
     )[:7]
     return top7
 
@@ -172,7 +172,7 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         away_price = next((o['price'] for o in outcomes if o['name'] == away_full), 'N/A')
 
         # retrieve the matched volume for this market
-        matched = mkt.get('totalMatched', mkt.get('total_matched', 0))
+        matched = mkt.get('total_matched', mkt.get('totalMatched', 0))
 
         # Check if there's a threshold set for these players
         home_surname = home_full.split()[-1].lower()
