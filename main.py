@@ -162,7 +162,7 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             day_str = "Tomorrow"
         else:
             day_str = dt_local.strftime('%A')
-        time_str = f"{day_str}, {dt_local.strftime('%H%M')} GMT"
+        time_str = f"{day_str}, {dt_local.strftime('%H:%M')}"
 
         outcomes = mkt['bookmakers'][0]['markets'][0]['outcomes']
         home_price = next((o['price'] for o in outcomes if o['name'] == home_full), 'N/A')
@@ -216,14 +216,27 @@ async def setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         thresholds[chat] = [thr for thr in thresholds[chat] if thr['surname'].lower() != surname.lower()]
         save_thresholds()
 
-# Handler: show all thresholds with /thresholds
 async def list_thresholds(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat.id
     user_th = thresholds.get(chat, [])
     if not user_th:
         await update.message.reply_text("You have no thresholds set.")
         return
-    lines = [f"*{thr['surname']}* < {thr['threshold']}" for thr in user_th]
+
+    # Aggregate thresholds per player surname (case-insensitive)
+    agg: dict[str, list[float]] = {}
+    for thr in user_th:
+        surname_lc = thr['surname'].lower()
+        agg.setdefault(surname_lc, []).append(thr['threshold'])
+
+    # Build a single line per player, capitalizing surname and showing all thresholds
+    lines = []
+    for surname_lc, prices in agg.items():
+        surname_cap = surname_lc.capitalize()
+        unique_prices = sorted(set(prices))
+        price_str = ', '.join(f"< {p}" for p in unique_prices)
+        lines.append(f"*{surname_cap}* {price_str}")
+
     text = "Your thresholds:\n" + "\n".join(lines)
     await update.message.reply_text(text, parse_mode='Markdown')
 
@@ -328,13 +341,13 @@ if __name__ == '__main__':
         top7 = get_top7_markets()
         print("Top 7 Tennis Matches (Next 3 Days):")
         for idx, (mkt, dt_utc) in enumerate(top7, start=1):
+            outcomes = mkt['bookmakers'][0]['markets'][0]['outcomes']
+            home_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('home_team', 'Unknown')), 'N/A')
+            away_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('away_team', 'Unknown')), 'N/A')
             home = format_name(mkt.get('home_team', 'Unknown'))
             away = format_name(mkt.get('away_team', 'Unknown'))
             dt_local = dt_utc.astimezone()
-            time_str = dt_local.strftime('%A, %H%M GMT')
-            outcomes = mkt['bookmakers'][0]['markets'][0]['outcomes']
-            home_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('home_team')), 'N/A')
-            away_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('away_team')), 'N/A')
+            time_str = dt_local.strftime('%H:%M')
             print(f"{idx}. {home} vs {away} — {time_str}")
             print(f"   • {home}: {home_price}")
             print(f"   • {away}: {away_price}")
