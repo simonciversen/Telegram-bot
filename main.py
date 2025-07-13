@@ -171,6 +171,9 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         home_price = next((o['price'] for o in outcomes if o['name'] == home_full), 'N/A')
         away_price = next((o['price'] for o in outcomes if o['name'] == away_full), 'N/A')
 
+        # retrieve the matched volume for this market
+        matched = mkt.get('totalMatched', mkt.get('total_matched', 0))
+
         # Check if there's a threshold set for these players
         home_surname = home_full.split()[-1].lower()
         away_surname = away_full.split()[-1].lower()
@@ -185,7 +188,8 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         text = (
             f"{idx}. *{home} vs {away}*{live_flag} — {time_str}\n"
             f"   • {home}: {home_price}{home_annotation}\n"
-            f"   • {away}: {away_price}{away_annotation}"
+            f"   • {away}: {away_price}{away_annotation}\n"
+            f"   • Matched: {matched}"
         )
         await update.message.reply_text(text, parse_mode='Markdown')
 
