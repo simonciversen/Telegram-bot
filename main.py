@@ -360,6 +360,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('setthreshold', setthreshold))
     app.add_handler(CommandHandler('thresholds', list_thresholds))
     app.add_handler(CommandHandler('remove', remove_threshold))
+    # plain text handler to remove a single player threshold without slash
+    app.add_handler(MessageHandler(filters.Regex(r'(?i)^remove\s+[A-Za-z]+$'), remove_threshold))
     # plain text handlers
     app.add_handler(MessageHandler(filters.Regex(r'^[A-Za-z]+ \d+(?:\.\d+)?$'), text_threshold))
     app.add_handler(MessageHandler(filters.Regex(r'(?i)^remove all$'), remove_all))
