@@ -103,7 +103,7 @@ def get_top7_markets():
             continue
     top7 = sorted(
         upcoming,
-        key=lambda x: (-x[0].get('total_matched', x[0].get('totalMatched', 0)), x[1])
+        key=lambda x: (-x[0].get('totalMatched', 0), x[1])
     )[:7]
     return top7
 
@@ -153,7 +153,16 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         now_utc = datetime.now(timezone.utc)
         live_flag = " 🔴 LIVE" if dt_utc <= now_utc else ""
 
-        time_str = dt_local.strftime('%A, %H%M GMT')
+        # Display “Today” or “Tomorrow” for very near dates
+        today_local = datetime.now(dt_local.tzinfo).date()
+        match_date = dt_local.date()
+        if match_date == today_local:
+            day_str = "Today"
+        elif match_date == today_local + timedelta(days=1):
+            day_str = "Tomorrow"
+        else:
+            day_str = dt_local.strftime('%A')
+        time_str = f"{day_str}, {dt_local.strftime('%H%M')} GMT"
 
         outcomes = mkt['bookmakers'][0]['markets'][0]['outcomes']
         home_price = next((o['price'] for o in outcomes if o['name'] == home_full), 'N/A')
