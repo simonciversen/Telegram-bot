@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-bot.py - Telegram bot to fetch top 7 tennis matches (next 3 days),
+"""bot.py - Telegram bot to fetch top 7 tennis matches (next 3 days),
 set thresholds by player surname, list/remove thresholds, and notify on drops.
 
 Setup:
@@ -8,6 +7,27 @@ Setup:
 2. pip3 install python-telegram-bot requests
 3. python3 bot.py
 """
+# Helper: Get matched volume
+def get_matched_volume(mkt: dict) -> float:
+    # Use the top-level "total_matched" or "totalMatched" field
+    return mkt.get('total_matched', mkt.get('totalMatched', 0))
+
+# Helper: Get play count (number of distinct betting markets for the chosen popular bookmaker, e.g., Bet365)
+def get_play_count(mkt: dict) -> int:
+    """
+    Returns the number of distinct betting markets for the chosen popular bookmaker (Bet365),
+    or falls back to the bookmaker with the most markets.
+    """
+    bookmakers = mkt.get('bookmakers', [])
+    # Try to find the popular bookmaker “bet365”
+    for bk in bookmakers:
+        if 'bet365' in bk.get('key', '').lower():
+            return len(bk.get('markets', []))
+    # Fallback: choose the bookmaker with the most markets (proxy for bet variety)
+    if not bookmakers:
+        return 0
+    best = max(bookmakers, key=lambda b: len(b.get('markets', [])))
+    return len(best.get('markets', []))
 import sys
 import logging
 import requests
@@ -57,7 +77,7 @@ def commit_and_push():
 
 # ======== Config ========
 TELEGRAM_TOKEN = '7495330094:AAF1-3HvNMyYft2jI1d0QZL3tTiDyQ0cx1c'
-ODDS_API_KEY   = '8abe65c8bdcff350cf08862e706a48da'
+ODDS_API_KEY   = '260567c3535bb5e28f0243d42a7396f6'
 SPORT_KEY      = 'tennis'
 
 # synchronous bot used inside threads for alerts
@@ -85,11 +105,51 @@ def format_name(full_name: str) -> str:
 
 # Fetch raw market data
 def fetch_markets():
-    url = f'https://api.the-odds-api.com/v4/sports/{SPORT_KEY}/odds/'
-    params = {'regions': 'uk,us,eu,au', 'markets': 'h2h', 'apiKey': ODDS_API_KEY}
-    r = requests.get(url, params=params, timeout=10)
+    """
+    Pulls all tennis-related markets by first getting every sport_key
+    starting with 'tennis' (so ATP, WTA, Slams, etc.), then fetching
+    odds for each and flattening the results.
+    """
+    # 1) get all sport keys
+    url_sports = 'https://api.the-odds-api.com/v4/sports'
+    params = {'apiKey': ODDS_API_KEY}
+    r = requests.get(url_sports, params=params, timeout=10)
     r.raise_for_status()
-    return r.json() or []
+    all_sports = r.json()  # list of { key, title, ... }
+
+    # 2) pick only those whose key starts with "tennis"
+    tennis_keys = [s['key'] for s in all_sports if s['key'].lower().startswith('tennis')]
+    if not tennis_keys:
+        logger.warning("No tennis sport keys found in sports list.")
+        return []
+
+    # 3) for each tennis key, fetch its markets
+    all_markets = []
+    for sk in tennis_keys:
+        url_odds = f'https://api.the-odds-api.com/v4/sports/{sk}/odds/'
+        try:
+            r2 = requests.get(url_odds, params={
+                'regions': 'uk,us,eu,au',
+                'markets': 'h2h',
+                'apiKey': ODDS_API_KEY
+            }, timeout=10)
+            if r2.status_code == 401:
+                logger.error(f"Unauthorized for sport key {sk}.")
+                continue
+            if r2.status_code == 422:
+                logger.error(f"Unprocessable for sport key {sk}.")
+                continue
+            r2.raise_for_status()
+            data = r2.json() or []
+            logger.info(f"Fetched {len(data)} markets for {sk}")
+            all_markets.extend(data)
+        except RequestException as e:
+            logger.error(f"Error fetching odds for {sk}: {e}")
+            continue
+
+    if not all_markets:
+        logger.warning("No tennis markets returned across all tennis keys.")
+    return all_markets
 
 # Get top 7 markets within next 3 days
 def get_top7_markets():
@@ -106,7 +166,7 @@ def get_top7_markets():
             continue
     top7 = sorted(
         upcoming,
-        key=lambda x: (-x[0].get('total_matched', x[0].get('totalMatched', 0)), x[1])
+        key=lambda x: (-get_play_count(x[0]), x[1])
     )[:7]
     return top7
 
@@ -171,8 +231,17 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         home_price = next((o['price'] for o in outcomes if o['name'] == home_full), 'N/A')
         away_price = next((o['price'] for o in outcomes if o['name'] == away_full), 'N/A')
 
-        # retrieve the matched volume for this market
-        matched = mkt.get('total_matched', mkt.get('totalMatched', 0))
+        # Find exchange odds (lay) from any bookmaker whose key contains "exchange"
+        ex_bk = next((b for b in mkt.get('bookmakers', []) if 'exchange' in b.get('key', '').lower()), None)
+        if ex_bk and ex_bk.get('markets'):
+            ex_outcomes = ex_bk['markets'][0]['outcomes']
+            home_lay = next((o['price'] for o in ex_outcomes if o['name'] == home_full), 'N/A')
+            away_lay = next((o['price'] for o in ex_outcomes if o['name'] == away_full), 'N/A')
+        else:
+            home_lay = away_lay = 'N/A'
+
+        # Count play count for this market
+        play_count = get_play_count(mkt)
 
         # Check if there's a threshold set for these players
         home_surname = home_full.split()[-1].lower()
@@ -188,8 +257,7 @@ async def handle_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         text = (
             f"{idx}. *{home} vs {away}*{live_flag} — {time_str}\n"
             f"   • {home}: {home_price}{home_annotation}\n"
-            f"   • {away}: {away_price}{away_annotation}\n"
-            f"   • Matched: {matched}"
+            f"   • {away}: {away_price}{away_annotation}"
         )
         await update.message.reply_text(text, parse_mode='Markdown')
 
@@ -355,21 +423,19 @@ def threshold_watcher():
 
 # Main entry
 if __name__ == '__main__':
-    # CLI test mode: "python main.py --print"
+    # CLI test mode: print top 7 matches and exit
     if len(sys.argv) > 1 and sys.argv[1] == '--print':
         top7 = get_top7_markets()
         print("Top 7 Tennis Matches (Next 3 Days):")
         for idx, (mkt, dt_utc) in enumerate(top7, start=1):
             outcomes = mkt['bookmakers'][0]['markets'][0]['outcomes']
-            home_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('home_team', 'Unknown')), 'N/A')
-            away_price = next((o['price'] for o in outcomes if o['name'] == mkt.get('away_team', 'Unknown')), 'N/A')
             home = format_name(mkt.get('home_team', 'Unknown'))
             away = format_name(mkt.get('away_team', 'Unknown'))
             dt_local = dt_utc.astimezone(GMT_PLUS_2)
             time_str = dt_local.strftime('%H:%M')
             print(f"{idx}. {home} vs {away} — {time_str}")
-            print(f"   • {home}: {home_price}")
-            print(f"   • {away}: {away_price}")
+            print(f"   • {home}: {next((o['price'] for o in outcomes if o['name']==mkt.get('home_team', 'Unknown')), 'N/A')}")
+            print(f"   • {away}: {next((o['price'] for o in outcomes if o['name']==mkt.get('away_team', 'Unknown')), 'N/A')}")
         sys.exit(0)
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     # Register /t10t and /top10tennis commands separately
@@ -394,3 +460,4 @@ if __name__ == '__main__':
     app.add_error_handler(error_handler)
     logger.info("Bot started and polling...")
     app.run_polling()
+
